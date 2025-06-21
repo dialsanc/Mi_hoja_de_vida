@@ -12,21 +12,21 @@ variables:
       - name: env_datakitchen
         value: 'pdn'
       - name: dbt_variables
-        value: '{\"env\": \"pdn\", \"execution_timestamp\": \"2025-02-21 15:40:55\", \"year\": \"2025\", \"month\": \"01\", \"day\": \"24\"}'
+        value: '{\"env\": \"pdn\", \"execution_date\": \"2025-02-21\", \"execution_timestamp\": \"2025-02-21 15:40:55\"}'
   - ${{ if eq(parameters.environment, 'qc') }}:
       - name: account
         value: '315735002216' # <-----
       - name: env_datakitchen
         value: 'qc'
       - name: dbt_variables
-        value: '{\"env\": \"qc\", \"execution_timestamp\": \"2025-02-21 15:40:55\", \"year\": \"2025\", \"month\": \"01\", \"day\": \"24\"}'
+        value: '{\"env\": \"qc\", \"execution_date\": \"2025-02-21\" ,\"execution_timestamp\": \"2025-02-21 15:40:55\"}'
   - ${{ if eq(parameters.environment, 'dev') }}:
       - name: account
         value: '255646567618' # <-----
       - name: env_datakitchen
         value: 'qc'
       - name: dbt_variables
-        value: '{\"env\": \"dev\", \"execution_timestamp\": \"2025-02-21 15:40:55\", \"year\": \"2025\", \"month\": \"01\", \"day\": \"24\"}'
+        value: '{\"env\": \"dev\", \"execution_date\": \"2025-02-21\", \"execution_timestamp\": \"2025-02-21 15:40:55\"}'
   # =====================================================================================
   #  1. Variables generales que no requieren modificación
   # =====================================================================================
