@@ -1,66 +1,65 @@
-import os
-import pandas as pd
-from extra.utils.extract import get_folder_input
-import shutil
+"""
+This module adds metadata and loads data to Iceberg, Hudi or Hive tables
+"""
+import sys
+import yaml
+from importlib.resources import path
+from pyspark.sql import DataFrame
+from product_logs_consultas_agentes.extra.utils.utils import create_custom_logger
+
+logger = create_custom_logger(__name__)
 
 
-# Metodo para crear el folder data/output con particion
-def create_folder_output_partition(partition:str):
+def read_yaml(yml_title):
+    metadata_file = path(package='metadata', resource=f'{yml_title}.yml')
+
+    with metadata_file as path_metadata:
+        with open(path_metadata, 'r') as file:
+            yml_content = yaml.load(file, Loader=yaml.FullLoader)
+
+    return yml_content['columns']
+
+def load_data(data=None, yaml_name=None, table_type=None, **kwargs):
+    table_parameters = {
+        'hudi': {'mode', 'options', 'target_path'}
+    }
+    if yaml_name is None:
+        raise ValueError("YAML file is required")
+
+    if table_type is None:
+        raise ValueError("table_type must be hive, iceberg or hudi")
+
+    if data is None:
+        raise ValueError("dataframe is required")
+    if set(kwargs) - table_parameters[table_type]:
+        raise ValueError(f"Invalid parameters for method {set(kwargs) - table_parameters[table_type]}")
+
+    yml_columns = read_yaml(yaml_name)
+    for column in yml_columns:
+        col_name = column['name']
+        metadata = {('comment' if key == 'description' else key): value
+                    for key, value in column.items() if key != 'name'}
+
+        if col_name in data.columns:
+            data = data.withMetadata(col_name, metadata)
+
+    load_mode = {'hudi': hudi_load_data}
+
+    return load_mode[table_type](data, **kwargs)
+
+
+def hudi_load_data(data, **kwargs):
+    """Save the Spark DataFrame to a Hudi table in Glue.
     """
-    Almacenar en las particiones del folder data/output
-    """
-    # Obtener el directorio padre
-    dir_project = os.getcwd()
+    hudi_options = kwargs.get('options')
+    hudi_mode = kwargs.get('mode')
+    hudi_target = kwargs.get('target_path')
 
-    # Directorio data output
-    dir_data_output = os.path.join(dir_project, 'data/output')
-
-    # Concatenar ruta destino con particion
-    folder_output = os.path.join(dir_data_output, f'{partition[4:8]}/{partition[0:2]}/{partition[2:4]}')
-
-    # Si el folder no existe, crearlo
-    if not os.path.exists(folder_output):
-        os.makedirs(folder_output)
-
-    return folder_output
-
-
-def save_df_output(df:pd.DataFrame, name_file:str, partition:str, ext:str):
-
-    # Directorio base data output
-    base_path_output = create_folder_output_partition(partition)
-
-    if (ext == '.xlsx'):
-        # Archivo procesado xlsx (name + dir)
-        name_xlsx_file_output = f'{name_file}_{partition}.xlsx'
-        dir_xlsx_file_output = os.path.join(base_path_output, name_xlsx_file_output)
-        df.to_excel(dir_xlsx_file_output)
-
-    elif (ext == '.csv'):
-        # Archivo procesado csv (name + dir)
-        name_xlsx_file_output = f'{name_file}_{partition}.csv'
-        dir_xlsx_file_output = os.path.join(base_path_output, name_xlsx_file_output)
-        df.to_csv(dir_xlsx_file_output)
-
-def move_file_folder(name_file:str, partition:str):
-    path_input_file = os.path.join(get_folder_input(), name_file)
-    path_output_file = os.path.join(create_folder_output_partition(partition), name_file)
-
-    # Mover el archivo original
-    shutil.move(path_input_file, path_output_file)
-
-def write_xlsx_masivo_vulneracion(file_name:str, partition:str, df_diff_final:pd.DataFrame, df_masivo_final:pd.DataFrame):
-    file_name_final = f"{file_name}_{partition}.xlsx"
-    path_output_file = os.path.join(create_folder_output_partition(partition), file_name_final)
-
-    # Escribir los DataFrames en diferentes hojas
-    with pd.ExcelWriter(path_output_file, engine='openpyxl') as writer:
-
-        df_diff_final.to_excel(writer, sheet_name='Consolidado',index=False)
-        df_masivo_final.to_excel(writer, sheet_name='Masivo', index=False)
-
-    print(f'DataFrames guardados en {path_output_file}')
-
-
-
-
+    try:
+        data.write.format("hudi").options(**hudi_options).mode(hudi_mode).save(hudi_target)
+        logger.info(f"Guardado exitoso de la tabla de hudi en DB: "
+                    f"{hudi_options['hoodie.datasource.hive_sync.database']}, "
+                    f"table: {hudi_options['hoodie.table.name']}")
+    except Exception as write_error:
+        logger.error(f"Error @ {sys._getframe().f_code.co_name}: {write_error}")
+        raise RuntimeError from write_error

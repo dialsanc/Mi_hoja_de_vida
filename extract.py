@@ -1,82 +1,40 @@
-import os
-import re
-import pandas as pd
-import awswrangler as wr
+import sys
+from datetime import datetime
+from pyspark.sql import DataFrame
+from product_logs_consultas_agentes.extra.utils.utils import create_custom_logger
 
-def read_input_xlsx_regex(regex:str):
-    # 1. Listar archivos .xlsx que hay en el folder input/ y leer el df (Solo 1 archivo)
+import sys
+from pyspark.context import SparkContext
 
-    dir_path_input = get_folder_input()
-    # Patron regex para validar nombre del archivo
-    regex_partition = r'^Masivo_vulneracion_(\d{8})_.*.xlsx$'  # Este patrón asume un formato específico, ajusta según tus necesidades
+logger = create_custom_logger(__name__)
 
-    # Lista para almacenar los nombres de archivos Excel en el directorio
-    archivos_excel = []
+def read_data_s3(glue_context, execution_timestamp: str, bucket_source: str) -> DataFrame:
+    """
+    Returns a DataFrame by reading JSON files from S3 in the specified partition.
 
-    # Iterar sobre los archivos en el directorio
-    for archivo in os.listdir(dir_path_input):
-        if archivo.endswith('.xlsx'):  # Puedes ajustar esto según el formato de tus archivos Excel
-            archivos_excel.append(archivo)
+    Args:
+        glue_context: GlueContext object for AWS Glue
+        execution_timestamp (str or datetime): Execution timestamp in 'YYYY-MM-DD HH:MM:SS' format or datetime
+        bucket_source (str): S3 bucket prefix, e.g., 's3://my-bucket/path/'
 
-    # Verificar la cantidad de archivos Excel
-    cantidad_archivos = len(archivos_excel)
+    Returns:
+        DataFrame: Spark DataFrame loaded from the partitioned path
+    """
+    if isinstance(execution_timestamp, str):
+        execution_timestamp = datetime.strptime(execution_timestamp, "%Y-%m-%d %H:%M:%S")
 
-    if cantidad_archivos == 0:
-        print("No se encontraron archivos Excel en el directorio.")
-    elif cantidad_archivos == 1:
-        #   Leer el archivo Excel
-        # Validar el nombre del archivo con la expresión regular
-        if re.match(regex_partition, archivos_excel[0]):
+    year = execution_timestamp.strftime('%Y')
+    month = execution_timestamp.strftime('%m')
+    day = execution_timestamp.strftime('%d')
+    hour = execution_timestamp.strftime('%H')
 
-            file_input_path = os.path.join(dir_path_input, archivos_excel[0])
+    s3_path = f"{bucket_source}year={year}/month={month}/day={day}/hour={hour}/"
 
-            # Asignar valor de input file
-            df_input_file = pd.read_excel(file_input_path)
-            df_input_file = df_input_file[['ID del ticket']]
-
-            # Asignar valor de original del file
-            name_input_file = archivos_excel[0]
-
-            """
-            Extraer particion del nombre del archivo original (insumo)
-            """
-
-                    # Aplicar la expresión regular al nombre ORIGINAL del archivo
-            match = re.search(regex_partition, archivos_excel[0])
-
-            # Verificar si se encontró el grupo de captura (particion)
-            if match:
-                partition = match.group(1)
-            else:
-                print("No se encontró el número en el nombre del archivo.")
-
-            print(f"File nombrado OK, shape df_input_file: {df_input_file.shape}")
-            return df_input_file, partition, name_input_file
-        else:
-            print("Archivo mal nombrado")
-            return None
-    else:
-        return None
-        print("Hay más de un archivo")
-
-
-
-def execute_query(query:str, database_athena:str, workgroup_athena:str):
-    try:
-        df_query = wr.athena.read_sql_query(sql=query,
-                                            database=database_athena,
-                                            workgroup=workgroup_athena,
-                                            ctas_approach = False)
-        return df_query
-    except Exception as e:
-        print(f"Error executing query: {e}")
-        return None
-
-def get_folder_input():
-
-    # Obtener el directorio padre
-    dir_project = os.getcwd()
-    # Directorio input data de insumo
-    dir_path_input = os.path.join(dir_project, 'data/input')
-
-    return dir_path_input
+    dyf = glue_context.create_dynamic_frame_from_options(
+        connection_type="s3",
+        connection_options={"paths": [s3_path], "recurse": True},
+        format="json",
+        format_options={"multiLine": "true"}
+    )
+    df = dyf.toDF()
+    return df
