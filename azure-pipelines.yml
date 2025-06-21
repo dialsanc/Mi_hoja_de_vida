@@ -1,25 +1,102 @@
-trigger:
+variables:
+  # =====================================================================================
+  #  0. Variables a modificar de acuerdo al repositorio
+  # =====================================================================================
+  - name: domain
+    value: gestionfraude # <-----
+  - name: subdomain
+    value: fre # <-----
+  - ${{ if eq(parameters.environment, 'pdn') }}:
+      - name: account
+        value: '044879804046' # <-----
+      - name: env_datakitchen
+        value: 'pdn'
+      - name: dbt_variables
+        value: '{\"env\": \"pdn\", \"execution_timestamp\": \"2025-02-21 15:40:55\", \"year\": \"2025\", \"month\": \"01\", \"day\": \"24\"}'
+  - ${{ if eq(parameters.environment, 'qc') }}:
+      - name: account
+        value: '315735002216' # <-----
+      - name: env_datakitchen
+        value: 'qc'
+      - name: dbt_variables
+        value: '{\"env\": \"qc\", \"execution_timestamp\": \"2025-02-21 15:40:55\", \"year\": \"2025\", \"month\": \"01\", \"day\": \"24\"}'
+  - ${{ if eq(parameters.environment, 'dev') }}:
+      - name: account
+        value: '255646567618' # <-----
+      - name: env_datakitchen
+        value: 'qc'
+      - name: dbt_variables
+        value: '{\"env\": \"dev\", \"execution_timestamp\": \"2025-02-21 15:40:55\", \"year\": \"2025\", \"month\": \"01\", \"day\": \"24\"}'
+  # =====================================================================================
+  #  1. Variables generales que no requieren modificación
+  # =====================================================================================
+  - group: PAT_Devops
+  - name: repoName
+    value: $[ replace(variables['Build.DefinitionName'], 'NequiTI/', '') ]
+  - ${{ if eq(parameters.program, 'DBT_ATHENA') }}:
+      - name: model_path
+        value: '$(domain)/$(repoName)/model_$(domain)_$(subdomain)_athena/'
+      - name: target
+        value: 'athena'
+      - name: profile
+        value: 'nequimesh_athena'
+  - ${{ if eq(parameters.program, 'DBT_GLUE') }}:
+      - name: model_path
+        value: '$(domain)/$(repoName)/model_$(domain)_$(subdomain)_glue/'
+      - name: target
+        value: 'glue'
+      - name: profile
+        value: 'nequimesh_glue'
+  - ${{ if eq(parameters.program, 'DBT_REDSHIFT') }}:
+      - name: model_path
+        value: '$(domain)/$(repoName)/model_$(domain)_$(subdomain)_redshift/'
+      - name: target
+        value: '$(domain)'
+      - name: profile
+        value: 'nequidw'
+# =====================================================================================
+#  1. Configuración por defecto para el pipeline de despliegue
+# =====================================================================================
+parameters:
+  - name: environment
+    type: string
+    values:
+      - pdn
+      - qc
+      - dev
+
+  - name: program
+    type: string
+    values:
+      - DBT_ATHENA
+      - DBT_GLUE
+      - DBT_REDSHIFT
+
+pool:
+  name: 'Nequi Delfos'
+
+pr:
   branches:
-    include:
-      - release
-      - main
-  paths:
     exclude:
-      - .azure-pipelines
-      - README.md
-      - azure-pipelines.yml
+      - '*'
 
 resources:
   repositories:
-    - repository: devops_pipeline_ref
+    - repository: devops_delfos_ref
       type: github
       endpoint: 'NequiGithub'
-      name: NequiTI/devops_pipeline_ref
-      ref: trunk
+      name: NequiTI/devops_delfos_ref
+      ref: refs/heads/trunk
 
 extends:
-  template: master-extends.yaml@devops_pipeline_ref
+  template: trunk/dbt/build.yaml@devops_delfos_ref
   parameters:
-    infra: 'dags'
-    technology: 'dags'
-    isDelfos: true
+    environment: ${{ parameters.environment }}
+    program: ${{ parameters.program }}
+    account: ${{variables.account}}
+    model_path: ${{variables.model_path}}
+    domain: ${{variables.domain}}
+    target: ${{ variables.target }}
+    profile: ${{ variables.profile }}
+    env_datakitchen : ${{ variables.env_datakitchen }}
+    
